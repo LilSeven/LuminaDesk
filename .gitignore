@@ -1,0 +1,22 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Local test output
+shots/
+smoke.log
+build.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
