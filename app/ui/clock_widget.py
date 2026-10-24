@@ -3,14 +3,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QMenu,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -49,6 +59,84 @@ def _font(size: float, weight: QFont.Weight = QFont.Normal,
     font.setPointSizeF(size)
     font.setWeight(weight)
     return font
+
+
+class TimeDisplay(QWidget):
+    """Big time plus seconds, drawn on one shared baseline.
+
+    Two QLabels cannot be reliably baseline-aligned: Qt aligns boxes, not
+    text baselines, so the smaller seconds label floats upward. Painting both
+    runs with the same baseline is exact and also bypasses app-level QSS fonts.
+    """
+
+    def __init__(self, palette: Palette, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._palette = palette
+        self._main = "--:--"
+        self._seconds = ""
+        self._ampm = ""
+        self.setFixedHeight(58)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._resize_to_text()
+
+    def set_palette(self, palette: Palette) -> None:
+        self._palette = palette
+        self.update()
+
+    def set_time(self, main: str, seconds: str = "", ampm: str = "") -> None:
+        if (main, seconds, ampm) == (self._main, self._seconds, self._ampm):
+            return
+        self._main = main
+        self._seconds = seconds
+        self._ampm = ampm
+        self._resize_to_text()
+        self.update()
+
+    @staticmethod
+    def _fonts() -> tuple[QFont, QFont, QFont]:
+        return (
+            _font(40, QFont.Light, "Segoe UI Light"),
+            _font(14, QFont.Normal, "Segoe UI"),
+            _font(8.5, QFont.Medium),
+        )
+
+    def _content_width(self) -> float:
+        big, small, tiny = self._fonts()
+        width = QFontMetrics(big).horizontalAdvance(self._main)
+        if self._seconds:
+            width += 3 + QFontMetrics(small).horizontalAdvance(self._seconds)
+        if self._ampm:
+            width += 6 + QFontMetrics(tiny).horizontalAdvance(self._ampm)
+        return width
+
+    def _resize_to_text(self) -> None:
+        self.setFixedWidth(max(110, int(self._content_width()) + 2))
+
+    def sizeHint(self) -> QSize:
+        return QSize(max(110, int(self._content_width()) + 2), 58)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        big, small, tiny = self._fonts()
+        baseline = self.height() - 8
+        x = 0.0
+
+        painter.setFont(big)
+        painter.setPen(QColor(self._palette.text))
+        painter.drawText(QPointF(x, baseline), self._main)
+        x += QFontMetrics(big).horizontalAdvance(self._main)
+
+        if self._seconds:
+            painter.setFont(small)
+            painter.setPen(QColor(self._palette.sub))
+            painter.drawText(QPointF(x + 3, baseline), self._seconds)
+            x += 3 + QFontMetrics(small).horizontalAdvance(self._seconds)
+
+        if self._ampm:
+            painter.setFont(tiny)
+            painter.setPen(QColor(self._palette.faint))
+            painter.drawText(QPointF(x + 6, baseline), self._ampm)
 
 
 class ClockWidget(QWidget):
@@ -122,25 +210,8 @@ class ClockWidget(QWidget):
         time_row.setContentsMargins(0, 2, 0, 0)
         time_row.setSpacing(0)
 
-        self.time_label = QLabel("--:--")
-        self.time_label.setFont(_font(42, QFont.Light, "Segoe UI Light"))
-        self.time_label.setStyleSheet(f"color: {self.palette.text}; background: transparent;")
-        self.time_label.setFixedHeight(58)
-        self.time_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-        time_row.addWidget(self.time_label, 0, Qt.AlignBottom)
-
-        self.seconds_label = QLabel(":--")
-        self.seconds_label.setFont(_font(14, QFont.Normal, "Segoe UI"))
-        self.seconds_label.setStyleSheet(f"color: {self.palette.sub}; background: transparent;")
-        self.seconds_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-        self.seconds_label.setContentsMargins(2, 0, 0, 9)
-        time_row.addWidget(self.seconds_label, 0, Qt.AlignBottom)
-
-        self.ampm_label = QLabel("")
-        self.ampm_label.setFont(_font(8.5, QFont.Medium))
-        self.ampm_label.setStyleSheet(f"color: {self.palette.faint}; background: transparent;")
-        self.ampm_label.setContentsMargins(6, 0, 0, 12)
-        time_row.addWidget(self.ampm_label, 0, Qt.AlignBottom)
+        self.time_display = TimeDisplay(self.palette)
+        time_row.addWidget(self.time_display, 0, Qt.AlignBottom)
         time_row.addStretch(1)
         body.addLayout(time_row)
 
@@ -271,13 +342,13 @@ class ClockWidget(QWidget):
     def _tick(self) -> None:
         now = datetime.now()
         if self.cfg.use_24h:
-            self.time_label.setText(now.strftime("%H:%M"))
-            self.ampm_label.setText("")
+            main = now.strftime("%H:%M")
+            ampm = ""
         else:
-            self.time_label.setText(now.strftime("%I:%M").lstrip("0") or "12:00")
-            self.ampm_label.setText("上午" if now.hour < 12 else "下午")
-        self.seconds_label.setVisible(self.cfg.show_seconds)
-        self.seconds_label.setText(f":{now:%S}")
+            main = now.strftime("%I:%M").lstrip("0") or "12:00"
+            ampm = "上午" if now.hour < 12 else "下午"
+        seconds = f":{now:%S}" if self.cfg.show_seconds else ""
+        self.time_display.set_time(main, seconds, ampm)
 
         date_html = (
             f"<span style='color:{self.palette.sub}'>{now.month}月{now.day}日 "
@@ -362,9 +433,7 @@ class ClockWidget(QWidget):
         else:
             apply_shadow(self.card, palette)
 
-        self.time_label.setStyleSheet(f"color: {palette.text}; background: transparent;")
-        self.seconds_label.setStyleSheet(f"color: {palette.sub}; background: transparent;")
-        self.ampm_label.setStyleSheet(f"color: {palette.faint}; background: transparent;")
+        self.time_display.set_palette(palette)
         self.temp_label.setStyleSheet(f"color: {palette.text}; background: transparent;")
         self.condition_label.setStyleSheet(f"color: {palette.text}; background: transparent;")
         self.detail_label.setStyleSheet(f"color: {palette.sub}; background: transparent;")
