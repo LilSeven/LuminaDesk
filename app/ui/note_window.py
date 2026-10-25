@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ..dialogs import ConfirmDialog
 from ..notes import KIND_TEXT, KIND_TODO, Note, NoteStore, TodoItem
 from ..theme import Palette, note_color
 from .icons import dot_icon, icon as make_icon
@@ -488,17 +489,42 @@ class NoteWindow(QWidget):
     def set_category(self, category_id: str) -> None:
         if category_id == self.note.category_id:
             return
+        category = self.store.category(category_id)
+        if category is None:
+            return
+        if category.kind != self.note.kind:
+            if not self._confirm_kind_switch(category.kind):
+                return
         self.note.category_id = category_id
+        if category.kind != self.note.kind:
+            self._convert_kind()
         self._apply_category()
         self._mark_dirty()
         self._flush()
 
+    def _confirm_kind_switch(self, target_kind: str) -> bool:
+        if target_kind == KIND_TODO:
+            has_content = bool(self.note.body.strip())
+            detail = "正文会按非空行拆成待办项，原来的段落格式不会保留。"
+        else:
+            has_content = any(item.text.strip() for item in self.note.todos)
+            detail = "待办项会按行合并为正文，勾选状态不会保留。"
+        if not has_content:
+            return True
+        return ConfirmDialog.ask(
+            self,
+            self.palette,
+            "切换便签类型？",
+            detail,
+            "切换",
+        )
+
     def _show_category_menu(self) -> None:
         menu = QMenu(self)
-        for category in self.store.categories():
-            action = menu.addAction(dot_icon(category.color, 10), category.name)
-            action.setCheckable(True)
-            action.setChecked(category.id == self.note.category_id)
+        for category in self.store.categories:
+            selected = category.id == self.note.category_id
+            text = f"{category.name}  ✓" if selected else category.name
+            action = menu.addAction(dot_icon(category.color, 10), text)
             action.triggered.connect(
                 lambda checked=False, cid=category.id: self.set_category(cid)
             )
