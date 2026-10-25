@@ -8,7 +8,7 @@ from pathlib import Path
 APP_NAME = "LuminaDesk"
 APP_DISPLAY_NAME = "Lumina Desk"
 APP_NAME_ZH = "暮光桌面"
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 REPO_URL = "https://github.com/LilSeven/LuminaDesk"
 
 

@@ -145,6 +145,10 @@ def build_qss(palette: Palette, accent: str) -> str:
     QFrame#noteRow:hover {{ background: {p.hover}; }}
     QLabel#dialogTitle {{ font-size: 17px; font-weight: 600; color: {p.text}; }}
     QLabel#rowTitle {{ font-size: 14px; font-weight: 600; color: {p.text}; }}
+    QLabel#bgPreview {{
+        background: {p.field}; border: 1px solid {p.border};
+        border-radius: 10px; color: {p.faint}; font-size: 11px;
+    }}
     QWidget#transparent {{ background: transparent; }}
 
     QPushButton {{

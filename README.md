@@ -25,6 +25,7 @@
 - 当前天气、体感温度、最高最低温、湿度、风速、更新时间
 - 城市搜索（Open-Meteo 地理编码），天气每 5–60 分钟自动刷新，失败时回退到缓存
 - **背景透明度 25%–100% 可调**：设置里的滑块，或把鼠标放在挂件上 `Ctrl + 滚轮`
+- **自定义背景**：选择任意图片，按挂件当前比例自由框选、拖拽缩放；裁切结果存到本地，原图不会被修改
 - 深色 / 浅色主题，6 种强调色
 - 始终置顶、开机自启、托盘常驻、单实例运行
 
@@ -46,6 +47,10 @@
 | --- | --- |
 | ![todo](docs/screenshots/todo.png) | ![settings](docs/screenshots/settings.png) |
 
+| 自定义背景 | 裁切不匹配的比例 |
+| --- | --- |
+| ![custom background](docs/screenshots/background.png) | ![crop](docs/screenshots/crop.png) |
+
 ## 下载与运行
 
 1. 打开 [Releases](https://github.com/LilSeven/LuminaDesk/releases/latest)，下载 `LuminaDesk.exe`。
@@ -64,8 +69,9 @@
 
   | 文件 | 内容 |
   | --- | --- |
-  | `config.json` | 城市、透明度、主题、窗口位置等 |
+  | `config.json` | 城市、透明度、主题、窗口位置、背景文件名等 |
   | `notes.json` | 便签、待办项与自定义类别 |
+  | `background-*.png` | 裁切后的自定义背景 |
   | `weather_cache.json` | 最近一次天气缓存 |
   | `app.log` | 仅在异常时写入的崩溃日志 |
 
@@ -93,7 +99,7 @@ python tools\make_assets.py          # 重新生成 assets\icon.ico（可选）
 python -m PyInstaller LuminaDesk.spec --noconfirm
 ```
 
-产物为 `dist\LuminaDesk.exe`（单文件，约 44 MB）。
+产物为 `dist\LuminaDesk.exe`（单文件，约 46 MB）。
 
 ## 项目结构
 
@@ -106,7 +112,9 @@ LuminaDesk/
 │  ├─ notes.py             便签数据模型与存储
 │  ├─ weather.py           Open-Meteo 客户端与缓存
 │  ├─ theme.py             深 / 浅色调色板与全局 QSS
-│  ├─ settings.py          设置与城市搜索
+│  ├─ settings.py          设置、城市搜索与背景裁切入口
+│  ├─ background.py        自定义背景的读取、保存与路径管理
+│  ├─ image_crop.py        按比例自由裁切的取景对话框
 │  ├─ note_manager.py      便签中心
 │  ├─ category_dialog.py   类别管理
 │  ├─ dialogs.py           通用玻璃对话框
@@ -116,6 +124,7 @@ LuminaDesk/
 │  └─ ui/                  挂件、便签窗口、矢量图标、基础控件
 ├─ tools/
 │  ├─ smoke_test.py        启动全界面并截图
+│  ├─ background_test.py   自定义背景与裁切流程截图
 │  └─ make_assets.py       生成应用图标
 └─ LuminaDesk.spec         PyInstaller 配置
 ```

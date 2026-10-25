@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
+    QDialog,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -17,8 +19,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .background import background_path, load_image, save_background
 from .config import ACCENTS, Config
-from .dialogs import GlassDialog
+from .dialogs import AlertDialog, GlassDialog
+from .image_crop import BackgroundCropDialog
 from .paths import VERSION, data_dir
 from .theme import Palette, palette_for
 from .ui.widgets import ColorSwatch, SectionTitle, ToggleSwitch, label
@@ -157,11 +161,13 @@ class SettingsDialog(GlassDialog):
     categories_requested = Signal()
     preview_requested = Signal()
 
-    def __init__(self, parent: QWidget | None, palette: Palette, cfg: Config) -> None:
+    def __init__(self, parent: QWidget | None, palette: Palette, cfg: Config,
+                 background_ratio: float = 356 / 340) -> None:
         super().__init__(parent, palette, "设置", width=480,
                          subtitle="外观、天气与桌面行为")
         self.cfg = cfg
-        self.setFixedSize(480, 780)
+        self._background_ratio = max(0.4, min(3.0, background_ratio))
+        self.setFixedSize(480, 930)
 
         content = QWidget(self.body)
         content.setObjectName("transparent")
@@ -217,6 +223,45 @@ class SettingsDialog(GlassDialog):
             self._swatches.append(swatch)
             accent_row.addWidget(swatch)
         layout.addWidget(accent_host)
+
+        # ---------------------------------------------------------- background
+        layout.addSpacing(6)
+        layout.addWidget(SectionTitle("背景"))
+        background_host, background_row = _row(
+            "自定义背景", "按挂件比例裁切，文字保持可读"
+        )
+        self.background_btn = QPushButton("选择图片…", background_host)
+        self.background_btn.setCursor(Qt.PointingHandCursor)
+        self.background_btn.clicked.connect(self._choose_background)
+        background_row.addWidget(self.background_btn, 0, Qt.AlignRight | Qt.AlignVCenter)
+        self.background_reset = QPushButton("恢复默认", background_host)
+        self.background_reset.setObjectName("chip")
+        self.background_reset.setCursor(Qt.PointingHandCursor)
+        self.background_reset.clicked.connect(self._reset_background)
+        background_row.addWidget(self.background_reset, 0, Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(background_host)
+
+        preview_host = QWidget(content)
+        preview_host.setObjectName("transparent")
+        preview_row = QHBoxLayout(preview_host)
+        preview_row.setContentsMargins(0, 0, 0, 0)
+        preview_row.setSpacing(10)
+        self.background_preview = QLabel(preview_host)
+        self.background_preview.setObjectName("bgPreview")
+        self.background_preview.setFixedSize(92, 52)
+        self.background_preview.setAlignment(Qt.AlignCenter)
+        preview_row.addWidget(self.background_preview)
+
+        background_info = QVBoxLayout()
+        background_info.setContentsMargins(0, 0, 0, 0)
+        background_info.setSpacing(1)
+        self.background_state = label("默认渐变背景", "sub")
+        background_info.addWidget(self.background_state)
+        background_info.addWidget(label("裁切结果会另存到数据目录", "faint"))
+        preview_row.addLayout(background_info, 1)
+
+        layout.addWidget(preview_host)
+        self._sync_background()
 
         transparency_host, transparency_row = _row("背景透明度", "数值越高越不透明；也可在挂件上 Ctrl+滚轮调节")
         self.transparency_value = label(f"{cfg.transparency}%", "faint")
@@ -319,7 +364,7 @@ class SettingsDialog(GlassDialog):
 
     def _pick_city(self) -> None:
         dialog = CitySearchDialog(self, self.palette, self.cfg.city_name)
-        if dialog.exec() == dialog.Accepted and dialog.choice is not None:
+        if dialog.exec() == QDialog.Accepted and dialog.choice is not None:
             city = dialog.choice
             self.cfg.city_name = city["name"]
             self.cfg.latitude = float(city["latitude"])
@@ -356,6 +401,62 @@ class SettingsDialog(GlassDialog):
             toggle.setProperty("accent", color)
             toggle.update()
         self.changed.emit()
+
+    def _choose_background(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择背景图片", "",
+            "图片 (*.png *.jpg *.jpeg *.webp *.bmp)",
+        )
+        if not path:
+            return
+        image = load_image(path)
+        if image.isNull():
+            AlertDialog.show_message(
+                self, self.palette, "无法读取图片",
+                "这个文件不是可识别的图片，或格式不受支持。请换一张 PNG / JPG / WebP 图片。",
+            )
+            return
+        dialog = BackgroundCropDialog(
+            self, self.palette, image, self._background_ratio, self.cfg.accent
+        )
+        if dialog.exec() != QDialog.Accepted or dialog.cropped.isNull():
+            return
+        try:
+            name = save_background(dialog.cropped)
+        except OSError as exc:
+            AlertDialog.show_message(self, self.palette, "保存失败", str(exc))
+            return
+        self.cfg.background_file = name
+        self._sync_background()
+        self.changed.emit()
+
+    def _reset_background(self) -> None:
+        if not self.cfg.background_file:
+            return
+        self.cfg.background_file = ""
+        self._sync_background()
+        self.changed.emit()
+
+    def _sync_background(self) -> None:
+        path = background_path(self.cfg)
+        pixmap = QPixmap(str(path)) if path is not None else QPixmap()
+        if not pixmap.isNull():
+            target = self.background_preview.size()
+            scaled = pixmap.scaled(
+                target, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation
+            )
+            x = max(0, (scaled.width() - target.width()) // 2)
+            y = max(0, (scaled.height() - target.height()) // 2)
+            self.background_preview.setPixmap(
+                scaled.copy(x, y, target.width(), target.height())
+            )
+            self.background_state.setText("自定义图片")
+            self.background_reset.setVisible(True)
+        else:
+            self.background_preview.clear()
+            self.background_preview.setText("默认")
+            self.background_state.setText("默认渐变背景")
+            self.background_reset.setVisible(False)
 
     def _transparency_changed(self, value: int) -> None:
         self.cfg.transparency = value

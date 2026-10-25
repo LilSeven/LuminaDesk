@@ -454,6 +454,16 @@ class ClockWidget(QWidget):
     def apply_transparency(self, value: int) -> None:
         self.card.set_opacity(value)
 
+    def set_background(self, pixmap: QPixmap | None) -> None:
+        self.card.set_background(pixmap)
+
+    def background_ratio(self) -> float:
+        """Current card aspect ratio, used to pre-crop a custom photo."""
+        width, height = self.card.width(), self.card.height()
+        if width > 20 and height > 20:
+            return width / height
+        return 356 / 340
+
     def set_always_on_top(self, enabled: bool) -> None:
         self.cfg.always_on_top = enabled
         visible = self.isVisible()

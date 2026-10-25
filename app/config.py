@@ -23,6 +23,7 @@ class Config:
     transparency: int = 82          # 0-100, background opacity of the clock card
     theme: str = "dark"             # dark | light
     accent: str = "#7F9CFF"
+    background_file: str = ""        # file name inside data_dir; empty = gradient
 
     always_on_top: bool = True
     autostart: bool = False
@@ -59,6 +60,12 @@ class Config:
         self.notes_on_start = bool(self.notes_on_start)
         self.window_x = int(self.window_x)
         self.window_y = int(self.window_y)
+        name = str(self.background_file or "").strip()
+        if name:
+            name = Path(name).name
+            if Path(name).suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+                name = ""
+        self.background_file = name
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -67,7 +74,7 @@ class Config:
     def load(cls, path: Path | None = None) -> "Config":
         path = path or (data_dir() / "config.json")
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(path.read_text(encoding="utf-8-sig"))
             if not isinstance(raw, dict):
                 raise ValueError("config root must be an object")
             known = {f for f in cls.__dataclass_fields__}

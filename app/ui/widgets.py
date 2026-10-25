@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QRadialGradient,
 )
 from PySide6.QtWidgets import (
@@ -45,17 +46,48 @@ def _rounded_path(rect: QRectF, radius: float) -> QPainterPath:
 
 
 def paint_card(painter: QPainter, rect: QRectF, radius: float, base: QColor, alpha: int,
-               palette: Palette) -> None:
+               palette: Palette, background: QPixmap | None = None) -> None:
     painter.save()
     painter.setRenderHint(QPainter.Antialiasing, True)
     path = _rounded_path(rect, radius)
 
-    top = mix_hex(base, "#FFFFFF" if palette.dark else "#FFFFFF", 0.10 if palette.dark else 0.0)
-    gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-    gradient.setColorAt(0.0, QColor(top.red(), top.green(), top.blue(), alpha))
-    gradient.setColorAt(1.0, QColor(base.red(), base.green(), base.blue(), alpha))
-
-    painter.fillPath(path, gradient)
+    if background is not None and not background.isNull() and background.width() > 0:
+        # Fill the card with a center-cropped copy of the photo, then veil it
+        # so the clock text keeps the same contrast as the gradient theme.
+        source_ratio = background.width() / background.height()
+        target_ratio = rect.width() / max(rect.height(), 1.0)
+        if source_ratio > target_ratio:
+            source_h = float(background.height())
+            source_w = source_h * target_ratio
+        else:
+            source_w = float(background.width())
+            source_h = source_w / target_ratio
+        source = QRectF(
+            (background.width() - source_w) / 2,
+            (background.height() - source_h) / 2,
+            source_w,
+            source_h,
+        )
+        painter.save()
+        painter.setClipPath(path)
+        painter.setOpacity(max(0.0, min(1.0, alpha / 255.0)))
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.drawPixmap(rect, background, source)
+        veil = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        if palette.dark:
+            veil.setColorAt(0.0, QColor(7, 9, 14, 112))
+            veil.setColorAt(1.0, QColor(7, 9, 14, 148))
+        else:
+            veil.setColorAt(0.0, QColor(250, 251, 253, 185))
+            veil.setColorAt(1.0, QColor(250, 251, 253, 220))
+        painter.fillRect(rect, veil)
+        painter.restore()
+    else:
+        top = mix_hex(base, "#FFFFFF" if palette.dark else "#FFFFFF", 0.10 if palette.dark else 0.0)
+        gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
+        gradient.setColorAt(0.0, QColor(top.red(), top.green(), top.blue(), alpha))
+        gradient.setColorAt(1.0, QColor(base.red(), base.green(), base.blue(), alpha))
+        painter.fillPath(path, gradient)
 
     if palette.dark:
         border = QColor(255, 255, 255, max(14, int(alpha * 0.10)))
@@ -95,6 +127,7 @@ class GlassCard(QWidget):
         self.opacity = opacity
         self.base = base if base is not None else QColor(*palette.card)
         self.accent: QColor | None = None
+        self.background: QPixmap | None = None
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
 
@@ -114,11 +147,15 @@ class GlassCard(QWidget):
         self.accent = color
         self.update()
 
+    def set_background(self, pixmap: QPixmap | None) -> None:
+        self.background = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self.update()
+
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
         painter = QPainter(self)
         alpha = round(255 * self.opacity / 100)
         rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        paint_card(painter, rect, self.radius, self.base, alpha, self.palette)
+        paint_card(painter, rect, self.radius, self.base, alpha, self.palette, self.background)
         if self.accent is not None and alpha > 0:
             painter.save()
             painter.setClipPath(_rounded_path(rect, self.radius))

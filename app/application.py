@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QTimer, Qt
 from PySide6.QtWidgets import QApplication, QDialog, QSystemTrayIcon
 
 from .autostart import set_enabled
+from .background import load_background
 from .category_dialog import CategoryDialog
 from .config import Config
 from .dialogs import AlertDialog, ConfirmDialog
@@ -35,6 +36,7 @@ class LuminaApp(QObject):
         self._manager: NoteManager | None = None
         self._settings: SettingsDialog | None = None
         self._has_weather = False
+        self._background_name: str | None = None
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -51,6 +53,7 @@ class LuminaApp(QObject):
         self.clock.set_note_count(self.store.count())
         self.clock.apply_transparency(self.cfg.transparency)
         self.clock.set_always_on_top(self.cfg.always_on_top)
+        self._sync_background()
         self._place_clock()
 
         if self.cfg.autostart:
@@ -212,7 +215,10 @@ class LuminaApp(QObject):
 
     def open_settings(self) -> None:
         snapshot = replace(self.cfg)
-        dialog = SettingsDialog(self.clock, self.palette, self.cfg)
+        dialog = SettingsDialog(
+            self.clock, self.palette, self.cfg,
+            background_ratio=self.clock.background_ratio(),
+        )
         self._settings = dialog
         dialog.changed.connect(self._apply_live_settings)
         dialog.categories_requested.connect(lambda: self.open_categories(dialog))
@@ -243,8 +249,15 @@ class LuminaApp(QObject):
         self.clock.apply_transparency(self.cfg.transparency)
         self.clock.set_always_on_top(self.cfg.always_on_top)
         self.clock.set_city(self.cfg.city_name)
+        self._sync_background()
         self.clock._tick()
         self._save_timer.start()
+
+    def _sync_background(self) -> None:
+        if self._background_name == self.cfg.background_file:
+            return
+        self._background_name = self.cfg.background_file
+        self.clock.set_background(load_background(self.cfg))
 
     # ------------------------------------------------------------------ misc
     def _on_geometry_saved(self, x: int, y: int) -> None:

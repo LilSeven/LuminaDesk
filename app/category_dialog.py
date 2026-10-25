@@ -5,6 +5,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -180,12 +181,12 @@ class CategoryDialog(GlassDialog):
 
     def _add(self) -> None:
         dialog = CategoryEditDialog(self, self.palette)
-        if dialog.exec() == dialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             self.store.add_category(dialog.result_name, dialog.result_color, dialog.result_kind)
 
     def _edit(self, category: Category) -> None:
         dialog = CategoryEditDialog(self, self.palette, category)
-        if dialog.exec() == dialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             self.store.update_category(
                 category.id,
                 name=dialog.result_name,
