@@ -414,6 +414,16 @@ class ClockWidget(QWidget):
             self.updated_label.setText(f"离线 · {self._weather.fetched_label}")
         self.weather_block.setToolTip(message)
 
+    def set_weather_stale(self, message: str) -> None:
+        """Keep the last reading visible but admit that refreshing failed."""
+        if self._weather is None:
+            self.set_weather_error(message)
+            return
+        self.updated_label.setText(
+            f"刷新失败 · 上次 {self._weather.fetched_label}"
+        )
+        self.weather_block.setToolTip(message)
+
     def set_note_count(self, count: int) -> None:
         self.notes_btn.setText(f"便签 · {count}")
 

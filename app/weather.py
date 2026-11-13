@@ -6,8 +6,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import QObject, QUrl, QUrlQuery, Signal
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest
+from PySide6.QtCore import QObject, QTimer, QUrl, QUrlQuery, Signal
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkProxy, QNetworkRequest
 
 from .paths import VERSION, data_dir
 
@@ -118,9 +118,20 @@ class WeatherService(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._nam = QNetworkAccessManager(self)
+        # Open-Meteo answers fine over a direct connection; pushing it through a
+        # system proxy (local VPN clients included) can stall the request forever.
+        self._nam.setProxy(QNetworkProxy(QNetworkProxy.ProxyType.NoProxy))
         self._pending = False
         self._city_reply = None
+        self._reply = None
         self._cache_path = data_dir() / "weather_cache.json"
+
+        # Hard watchdog. A proxy tunnel can stall before a single byte moves,
+        # which QNetworkRequest.setTransferTimeout() does not cover.
+        self._watchdog = QTimer(self)
+        self._watchdog.setSingleShot(True)
+        self._watchdog.setInterval(20_000)
+        self._watchdog.timeout.connect(self._on_watchdog)
 
     # ------------------------------------------------------------------ fetch
     def refresh(self, city: str, latitude: float, longitude: float) -> None:
@@ -145,9 +156,25 @@ class WeatherService(QObject):
         request.setTransferTimeout(15000)
         request.setHeader(QNetworkRequest.UserAgentHeader, f"LuminaDesk/{VERSION}")
         reply = self._nam.get(request)
+        self._reply = reply
+        self._watchdog.start()
         reply.finished.connect(lambda: self._on_weather(reply, city))
 
+    def _on_watchdog(self) -> None:
+        reply = self._reply
+        self._reply = None
+        self._pending = False
+        if reply is not None:
+            reply.abort()
+            reply.deleteLater()
+        self.failed.emit("天气请求超时，稍后重试")
+
     def _on_weather(self, reply, city: str) -> None:
+        if reply is not self._reply:
+            # abandoned by the watchdog; it owns the cleanup
+            return
+        self._watchdog.stop()
+        self._reply = None
         self._pending = False
         try:
             if reply.error() != reply.NetworkError.NoError:

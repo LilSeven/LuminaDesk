@@ -46,6 +46,13 @@ class LuminaApp(QObject):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self.refresh_weather)
 
+        # One quick retry after a failure, so a transient stall does not have to
+        # wait for the next full refresh interval.
+        self._retry_timer = QTimer(self)
+        self._retry_timer.setSingleShot(True)
+        self._retry_timer.setInterval(60_000)
+        self._retry_timer.timeout.connect(self.refresh_weather)
+
         self._connect()
         self._apply_theme()
 
@@ -120,6 +127,7 @@ class LuminaApp(QObject):
         self.weather.refresh(self.cfg.city_name, self.cfg.latitude, self.cfg.longitude)
 
     def _on_weather(self, weather) -> None:
+        self._retry_timer.stop()
         self._has_weather = True
         self.clock.set_weather(weather, cached=False)
         self.tray.set_tooltip(
@@ -127,8 +135,12 @@ class LuminaApp(QObject):
         )
 
     def _on_weather_failed(self, message: str) -> None:
-        if not self._has_weather:
+        if self._has_weather:
+            self.clock.set_weather_stale(message)
+        else:
             self.clock.set_weather_error(message)
+        if not self._retry_timer.isActive():
+            self._retry_timer.start()
 
     # ------------------------------------------------------------------ notes
     def _restore_notes(self) -> None:
